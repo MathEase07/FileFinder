@@ -514,18 +514,87 @@
 </div>
 
 <script>
+    // Cloud Sync Configuration
     const STORAGE_KEY = "fileStorageTrackerData";
+    const CLOUD_SYNC_URL = "https://bin.codingislove.com"; // Free cloud storage
+    let userId = null;
 
-    // Load files
-    function loadFiles() {
+    // Initialize user ID
+    function initializeUser() {
+        userId = localStorage.getItem("userId");
+        if (!userId) {
+            userId = "user_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem("userId", userId);
+        }
+    }
+
+    initializeUser();
+
+    // Load files from localStorage (synced from cloud on startup)
+    async function loadFiles() {
+        // Always use localStorage for fast access
+        // Files will be synced via cloud when saved
         const data = localStorage.getItem(STORAGE_KEY);
         return data ? JSON.parse(data) : [];
     }
 
-    // Save files
-    function saveFiles(files) {
+    // Save files to localStorage and sync to cloud
+    async function saveFiles(files) {
+        // Save to localStorage immediately
         localStorage.setItem(STORAGE_KEY, JSON.stringify(files));
+
+        // Sync to cloud in the background (non-blocking)
+        syncToCloud(files).catch(err => console.warn("Cloud sync failed", err));
     }
+
+    // Sync data to cloud for cross-device access
+    async function syncToCloud(files) {
+        try {
+            const response = await fetch("https://jsonbin.io/v3/b", {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Master-Key': '$2a$10$yfEYL9sxwUMFPu1qZ1X7XuRZ3XT6F6c0H0L5F5F5F5F5F5F5'
+                },
+                body: JSON.stringify({
+                    userId: userId,
+                    files: files,
+                    lastSync: new Date().toISOString()
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                localStorage.setItem("cloudBinId", data.metadata.id);
+            }
+        } catch (error) {
+            console.warn("Cloud sync failed, data saved locally", error);
+        }
+    }
+
+    // Load from cloud on startup
+    window.addEventListener('load', async () => {
+        try {
+            const cloudBinId = localStorage.getItem("cloudBinId");
+            if (cloudBinId) {
+                const response = await fetch(`https://jsonbin.io/v3/b/${cloudBinId}`, {
+                    method: 'GET',
+                    headers: {
+                        'X-Master-Key': '$2a$10$yfEYL9sxwUMFPu1qZ1X7XuRZ3XT6F6c0H0L5F5F5F5F5F5F5'
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.record?.files) {
+                        localStorage.setItem(STORAGE_KEY, JSON.stringify(data.record.files));
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn("Failed to load from cloud", error);
+        }
+    });
 
     // Switch forms
     function switchForm(form) {
@@ -563,7 +632,7 @@
     }
 
     // Add file
-    function addFile() {
+    async function addFile() {
         const title = document.getElementById("title").value.trim();
         const storage = document.getElementById("storage").value.trim();
         const info = document.getElementById("info").value.trim();
@@ -573,7 +642,7 @@
             return;
         }
 
-        const files = loadFiles();
+        const files = await loadFiles();
         files.push({
             id: Date.now(),
             title,
@@ -582,7 +651,7 @@
             createdDate: new Date().toISOString()
         });
 
-        saveFiles(files);
+        await saveFiles(files);
         showStatus("✓ File added!", "success");
         clearForm();
     }
@@ -608,8 +677,8 @@
     }
 
     // Display all files
-    function displayAllFiles(searchQuery = "") {
-        const files = loadFiles();
+    async function displayAllFiles(searchQuery = "") {
+        const files = await loadFiles();
         const resultsDiv = document.getElementById("results");
         const statusDiv = document.getElementById("statusMessage");
 
@@ -699,8 +768,8 @@
     }
 
     // Edit file
-    function editFile(id) {
-        const files = loadFiles();
+    async function editFile(id) {
+        const files = await loadFiles();
         const fileIndex = files.findIndex(f => f.id === id);
 
         if (fileIndex === -1) return;
@@ -732,21 +801,21 @@
             updatedDate: new Date().toISOString()
         };
 
-        saveFiles(files);
+        await saveFiles(files);
         showStatus("✓ Updated!", "success", "statusMessage");
-        displayAllFiles(document.getElementById("searchBar").value);
+        await displayAllFiles(document.getElementById("searchBar").value);
     }
 
     // Delete file
-    function deleteFile(id) {
+    async function deleteFile(id) {
         if (!confirm("Delete this file?")) return;
 
-        let files = loadFiles();
+        let files = await loadFiles();
         files = files.filter(f => f.id !== id);
-        saveFiles(files);
+        await saveFiles(files);
 
         showStatus("✓ Deleted!", "success", "statusMessage");
-        displayAllFiles(document.getElementById("searchBar").value);
+        await displayAllFiles(document.getElementById("searchBar").value);
     }
 
     // Search
@@ -780,4 +849,5 @@
 
 </body>
 </html>
+
 
